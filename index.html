@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="es">
+               <head>
+               <meta charset="UTF-8">
+               <meta name="viewport"
+                     content="width=device-width,
+                     initial-scale=1.0">
+               <title>Control de Asistencia QR</title>
+               <script src="https://unpkg.com/html5-qrcode"></script>
+               <style>
+                      *{
+                         margin:0;
+                         padding:0;
+                         box-sizing:border-box;
+                       }
+                       body{
+                           font-family:Arial,Helvetica,sans-serif;
+                           background:#f2f5f8;
+                           color:#333;
+                        }
+                        header{
+                              background:#1565C0;
+                              color:white;
+                              padding:20px;
+                              text-align:center;
+                              font-size:26px;
+                              font-weight:bold;
+                        }
+                        main{
+                              width:95%;
+                              max-width:700px;
+                              margin:auto;
+                              margin-top:20px;
+                         }
+                         .card{
+                              background:white;
+                              border-radius:10px;
+                              padding:20px;
+                              box-shadow:0 3px 12px rgba(0,0,0,.18);
+                          }
+                          #reader{
+                                width:100%;
+                                min-height:320px;
+                                border:3px dashed #1565C0;
+                                border-radius:10px;
+                                overflow:hidden;
+                                background:#fafafa;
+                          }
+                          button{
+                                width:100%;
+                                padding:15px;
+                                margin-top:15px;
+                                border:none;
+                                border-radius:8px;
+                                background:#1565C0;
+                                color:white;
+                                font-size:18px;
+                                cursor:pointer;
+                          }
+                          button:hover{
+                                background:#0D47A1;
+                          }
+                          button:disabled{
+                                background:#BDBDBD;
+                                cursor:not-allowed;
+                          }
+                          #estado{
+                                margin-top:15px;
+                                padding:12px;
+                                border-radius:8px;
+                                background:#ECEFF1;
+                                font-size:16px;
+                          }
+                          #resultado{
+                                   margin-top:15px;
+                                   padding:15px;
+                                   border-radius:8px;
+                                   background:#E8F5E9;
+                                   display:none;
+                           }
+                           #resultado h2{
+                                   color:#2E7D32;
+                                   margin-bottom:10px;
+                            }
+                            #resultado p{
+                                   margin:6px 0;
+                            }
+                            #loader{
+                                  display:none;
+                                  margin-top:20px;
+                                  text-align:center;
+                            }
+                            .loader{
+                                   width:45px;
+                                   height:45px;
+                                   border:5px solid #ddd;
+                                   border-top:5px solid #1565C0;
+                                   border-radius:50%;
+                                   animation:girar 1s linear infinite;
+                                   margin:auto;
+                             }
+
+                              @keyframes girar{
+                                         from{
+                                             transform:rotate(0deg);
+                                         }
+                                         to{
+                                             transform:rotate(360deg);
+                                          }
+                              }
+                              .ok{
+                                      color:#2E7D32;
+                               }
+                               .error{
+                                      color:#C62828;
+                                }
+                               .info{
+                                      color:#1565C0;
+                                }
+                                .warning{
+                                      color:#F57F17;
+                                }
+                </style>
+           </head>
+       <body>
+            <header>
+                   CONTROL DE ASISTENCIA QR
+            </header>
+            <main>
+                <div class="card">
+                  <div id="reader"></div>
+                  <button id="btnCamara">
+                          📷 ACTIVAR CÁMARA
+                  </button>
+                  <div id="loader">
+                       <div class="loader"></div>
+                       <p>Inicializando cámara...</p>
+                  </div>
+                  <div id="estado">
+                       Esperando...
+                  </div>
+                  <div id="resultado">
+                       <h2>Asistencia</h2>
+                       <p id="nombre"></p>
+                       <p id="grado"></p>
+                       <p id="hora"></p>
+                  </div>
+                </div>
+            </main>
+
+            <script>
+                   /*====================================================
+                       QR CORE v2.1
+                       Motor Profesional (versión externa a Apps Script)
+                   ====================================================*/
+
+                   // ⚠️ IMPORTANTE: pega aquí la URL de tu Web App de Apps Script (.../exec)
+                   const SCRIPT_URL = "PEGA_AQUI_TU_URL_DE_APPS_SCRIPT_EXEC";
+
+                   const APP={
+                         lector:null,
+                         camaras:[],
+                         camara:null,
+                         activa:false,
+                         leyendo:false,
+                         ultimoQR:null,
+                         tiempoBloqueo:3000,
+                         ultimoEscaneo:0
+                    };
+
+                   const UI={
+                         estado:document.getElementById("estado"),
+                         resultado:document.getElementById("resultado"),
+                         nombre:document.getElementById("nombre"),
+                         grado:document.getElementById("grado"),
+                         hora:document.getElementById("hora"),
+                         boton:document.getElementById("btnCamara"),
+                         loader:document.getElementById("loader")
+                    };
+
+                    /*======================================================
+                         FUNCIONES DE INTERFAZ
+                    ======================================================*/
+                    function mostrarEstado(texto, clase = "info") {
+                             UI.estado.className = clase;
+                             UI.estado.innerHTML = texto;
+                    }
+                    function mostrarLoader(ver = true) {
+                             UI.loader.style.display = ver ? "block" : "none";
+                    }
+                    function limpiarResultado() {
+                             UI.resultado.style.display = "none";
+                             UI.nombre.innerHTML = "";
+                             UI.grado.innerHTML = "";
+                             UI.hora.innerHTML = "";
+                    }
+
+                    /*======================================================
+                            DETECCIÓN DE CÁMARAS
+                    ======================================================*/
+                    async function obtenerCamaras() {
+                           mostrarEstado("Buscando cámaras...", "info");
+                           APP.camaras = await Html5Qrcode.getCameras();
+                           if (!APP.camaras || APP.camaras.length === 0) {
+                              throw new Error("No se encontró ninguna cámara.");
+                           }
+
+                           console.log("Cámaras encontradas:");
+                           console.table(APP.camaras);
+                    }
+
+                    /*======================================================
+                            SELECCIONAR LA MEJOR CÁMARA
+                    ======================================================*/
+                    function seleccionarCamara() {
+                            let trasera = null;
+                            for (const cam of APP.camaras) {
+                                const nombre = (cam.label || "").toLowerCase();
+                                if (
+                                   nombre.includes("back") ||
+                                   nombre.includes("rear") ||
+                                   nombre.includes("environment") ||
+                                   nombre.includes("trasera")
+                                ) {
+                                   trasera = cam;
+                                   break;
+                                  }
+                            }
+                            APP.camara = trasera || APP.camaras[0];
+                            console.log("Usando cámara:");
+                            console.log(APP.camara);
+                    }
+
+                    /*======================================================
+                            INICIALIZAR MOTOR QR
+                    ======================================================*/
+                    async function iniciarMotor() {
+                        if (APP.lector !== null) {
+                            try {
+                                await APP.lector.stop();
+                            } catch (e) {}
+                            try {
+                                APP.lector.clear();
+                            } catch (e) {}
+                        }
+                        APP.lector = new Html5Qrcode("reader");
+                    }
+
+                    /*======================================================
+                            INICIAR CÁMARA
+                    ======================================================*/
+                    async function iniciarCamara() {
+                          try {
+                               UI.boton.disabled = true;
+                               limpiarResultado();
+                               mostrarLoader(true);
+                               mostrarEstado("Inicializando cámara...", "info");
+                               await obtenerCamaras();
+                               seleccionarCamara();
+                               await iniciarMotor();
+                               await APP.lector.start(
+                                     APP.camara.id,
+                                     {
+                                       fps: 10,
+                                       qrbox: {
+                                            width: 260,
+                                            height: 260
+                                       }
+                                     },
+                                     onScanSuccess,
+                                     onScanError
+                                );
+
+                               APP.activa = true;
+                               mostrarLoader(false);
+                               UI.boton.disabled = false;
+                               mostrarEstado("✅ Cámara lista para escanear", "ok");
+                          }
+                          catch (error) {
+                                console.error(error);
+                                mostrarLoader(false);
+                                UI.boton.disabled = false;
+                                UI.boton.textContent = "📷 ACTIVAR CÁMARA";
+                                mostrarEstado(
+                                         "❌ " + error.message,
+                                         "error"
+                                );
+                          }
+                    }
+
+                     /*======================================================
+                             DETENER CÁMARA
+                     ======================================================*/
+                     async function detenerCamara() {
+                              if (!APP.lector) return;
+                                  try {
+                                      await APP.lector.stop();
+                                      APP.lector.clear();
+                                  }
+                                  catch (e) {
+                                        console.log(e);
+                                  }
+                                  APP.activa = false;
+                                  UI.boton.disabled = false;
+                     }
+
+                     /*======================================================
+                            ÉXITO AL ESCANEAR QR
+                     ======================================================*/
+                     async function onScanSuccess(decodedText, decodedResult) {
+                             const ahora = Date.now();
+
+                             if (APP.leyendo) return;
+
+                             if (decodedText === APP.ultimoQR && (ahora - APP.ultimoEscaneo) < APP.tiempoBloqueo) {
+                                 return;
+                             }
+                             APP.ultimoQR = decodedText;
+                             APP.ultimoEscaneo = ahora;
+
+                             let datos;
+                             try {
+                                 datos = JSON.parse(decodedText);
+                             } catch (e) {
+                                 mostrarEstado("❌ Código QR no reconocido.", "error");
+                                 return;
+                             }
+
+                             if (!datos.id || !datos.nombre) {
+                                 mostrarEstado("❌ El código QR no contiene los datos requeridos (id, nombre).", "error");
+                                 return;
+                             }
+
+                             if (SCRIPT_URL.includes("PEGA_AQUI")) {
+                                 mostrarEstado("⚠️ Falta configurar SCRIPT_URL en el código con la URL de tu Apps Script.", "warning");
+                                 return;
+                             }
+
+                             APP.leyendo = true;
+                             limpiarResultado();
+                             mostrarEstado("⏳ Registrando asistencia de " + datos.nombre + "...", "info");
+
+                             try {
+                                 const respuesta = await fetch(SCRIPT_URL, {
+                                     method: "POST",
+                                     // text/plain evita el preflight CORS que Apps Script no maneja
+                                     headers: { "Content-Type": "text/plain;charset=utf-8" },
+                                     body: JSON.stringify({
+                                         action: "registrarAsistencia",
+                                         datos: datos
+                                     })
+                                 });
+
+                                 const resultado = await respuesta.json();
+
+                                 if (!resultado.ok) {
+                                     throw new Error(resultado.mensaje);
+                                 }
+
+                                 mostrarEstado("✅ " + resultado.mensaje, "ok");
+
+                                 const ahoraTexto = new Date().toLocaleTimeString("es-PE", {
+                                       hour: "2-digit",
+                                       minute: "2-digit",
+                                       second: "2-digit"
+                                 });
+
+                                 UI.nombre.innerHTML = "👤 " + datos.nombre;
+                                 UI.grado.innerHTML = "🏫 " + (datos.grado || "");
+                                 UI.hora.innerHTML = "🕒 " + ahoraTexto;
+                                 UI.resultado.style.display = "block";
+                             } catch (error) {
+                                 mostrarEstado("❌ " + error.message, "error");
+                             } finally {
+                                 APP.leyendo = false;
+                             }
+                     }
+
+                     /*======================================================
+                            ERROR AL ESCANEAR (se dispara constantemente
+                            mientras la cámara no detecta un QR; se ignora)
+                     ======================================================*/
+                     function onScanError(mensajeError) {
+                             // Sin acción
+                     }
+
+                     /*======================================================
+                                 BOTÓN
+                     ======================================================*/
+                     UI.boton.addEventListener(
+                           "click",
+                           () => {
+                               if (APP.activa) {
+                                   detenerCamara();
+                                   UI.boton.textContent = "📷 ACTIVAR CÁMARA";
+                                   mostrarEstado("Cámara detenida.", "info");
+                               } else {
+                                   iniciarCamara();
+                                   UI.boton.textContent = "⏹️ DETENER CÁMARA";
+                               }
+                           }
+                     );
+</script>
+</body>
+</html>
